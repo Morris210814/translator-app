@@ -1,13 +1,12 @@
 import streamlit as st
 import google.generativeai as genai
-from PIL import Image
-from gTTS import gTTS
-import io
+import streamlit.components.v1 as components
+import json
 import os
 
 st.set_page_config(page_title="中印即時雙向翻譯", page_icon="🌐", layout="centered")
 
-# 讀取 Secrets 或環境變數中的 GEMINI_API_KEY
+# 讀取金鑰
 API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
 if not API_KEY:
@@ -17,7 +16,7 @@ if not API_KEY:
     st.info("💡 請在側邊欄輸入 Gemini API Key 或於雲端後台設定 Secrets 以啟動翻譯。")
     st.stop()
 
-# 設定 API Key
+# 初始化模型
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -32,7 +31,23 @@ direction = st.radio(
 is_zh_to_id = direction.startswith("繁體中文")
 src_lang = "繁體中文" if is_zh_to_id else "Bahasa Indonesia"
 target_lang = "Bahasa Indonesia" if is_zh_to_id else "繁體中文"
-tts_lang_code = "id" if is_zh_to_id else "zh-TW"
+tts_lang_code = "id-ID" if is_zh_to_id else "zh-TW"
+
+# 使用瀏覽器原生 Web Speech API 朗讀（免安裝任何後端套件）
+def speak_text(text, lang_code):
+    js_text = json.dumps(text)
+    js_code = f"""
+    <script>
+    if ('speechSynthesis' in window) {{
+        window.speechSynthesis.cancel();
+        var msg = new SpeechSynthesisUtterance({js_text});
+        msg.lang = '{lang_code}';
+        msg.rate = 1.0;
+        window.speechSynthesis.speak(msg);
+    }}
+    </script>
+    """
+    components.html(js_code, height=0)
 
 def translate_content(text=None, image=None):
     prompt = (
@@ -51,13 +66,6 @@ def translate_content(text=None, image=None):
         
     response = model.generate_content(contents)
     return response.text.strip()
-
-def play_audio(text, lang_code):
-    tts = gTTS(text=text, lang=lang_code)
-    fp = io.BytesIO()
-    tts.write_to_fp(fp)
-    fp.seek(0)
-    st.audio(fp, format="audio/mp3", autoplay=True)
 
 tab_voice, tab_text, tab_camera = st.tabs(["🎙️ 語音對話", "⌨️ 打字輸入", "📷 拍照/圖檔辨識"])
 
@@ -80,7 +88,7 @@ with tab_voice:
                 result_text = response.text.strip()
                 st.success("翻譯結果：")
                 st.subheader(result_text)
-                play_audio(result_text, tts_lang_code)
+                speak_text(result_text, tts_lang_code)
 
 with tab_text:
     user_input = st.text_area(f"請輸入 {src_lang} 內容：", height=100)
@@ -90,7 +98,7 @@ with tab_text:
                 translated = translate_content(text=user_input)
                 st.success("翻譯結果：")
                 st.subheader(translated)
-                play_audio(translated, tts_lang_code)
+                speak_text(translated, tts_lang_code)
         else:
             st.warning("請先輸入文字。")
 
@@ -100,6 +108,7 @@ with tab_camera:
     
     target_img = img_file or uploaded_file
     if target_img is not None:
+        from PIL import Image
         image = Image.open(target_img)
         st.image(image, caption="待翻譯圖片", use_container_width=True)
         if st.button("開始圖片文字翻譯", key="btn_image"):
@@ -107,4 +116,4 @@ with tab_camera:
                 translated_img = translate_content(image=image)
                 st.success("翻譯結果：")
                 st.subheader(translated_img)
-                play_audio(translated_img, tts_lang_code)
+                speak_text(translated_img, tts_lang_code)
