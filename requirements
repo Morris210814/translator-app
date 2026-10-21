@@ -1,4 +1,4 @@
-  streamlit
-  google-genai
-  Pillow
-  gTTS
+streamlit
+google-genai
+Pillow
+gTTS
