@@ -1,6 +1,5 @@
 import streamlit as st
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 from PIL import Image
 from gTTS import gTTS
 import io
@@ -8,7 +7,7 @@ import os
 
 st.set_page_config(page_title="中印即時雙向翻譯", page_icon="🌐", layout="centered")
 
-# 優先讀取 Streamlit Secrets 或環境變數中的 GEMINI_API_KEY
+# 讀取 Secrets 或環境變數中的 GEMINI_API_KEY
 API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
 if not API_KEY:
@@ -18,7 +17,9 @@ if not API_KEY:
     st.info("💡 請在側邊欄輸入 Gemini API Key 或於雲端後台設定 Secrets 以啟動翻譯。")
     st.stop()
 
-client = genai.Client(api_key=API_KEY)
+# 設定 API Key
+genai.configure(api_key=API_KEY)
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 st.title("🌐 中 ⇄ 印 雙向即時翻譯")
 
@@ -34,28 +35,21 @@ target_lang = "Bahasa Indonesia" if is_zh_to_id else "繁體中文"
 tts_lang_code = "id" if is_zh_to_id else "zh-TW"
 
 def translate_content(text=None, image=None):
-    system_instruction = (
-        f"你是一名專業的雙向口譯與文件翻譯助手。目標是將輸入的內容從 {src_lang} 精準翻譯為 {target_lang}。"
+    prompt = (
+        f"你是一名專業的雙向口譯助手。請將以下內容從 {src_lang} 精準翻譯為 {target_lang}。\n"
         "要求：\n"
-        "1. 口吻自然、清晰，貼合日常工作與現場口語交流情境。\n"
-        "2. 只輸出翻譯後的結果，嚴禁添加任何多餘的寒暄、解釋、標籤或拼音標註。\n"
-        "3. 若輸入為圖片，請先辨識圖片中的文字並直接翻譯成目標語言。"
+        "1. 口吻自然、清晰，貼合現場日常溝通。\n"
+        "2. 只輸出翻譯後的結果，嚴禁添加任何多餘寒暄、解釋、標籤或拼音標註。\n"
+        "3. 若為圖片，請直接辨識文字並翻譯成目標語言。"
     )
     
-    contents = []
+    contents = [prompt]
     if image is not None:
         contents.append(image)
     if text:
         contents.append(text)
         
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            temperature=0.3
-        )
-    )
+    response = model.generate_content(contents)
     return response.text.strip()
 
 def play_audio(text, lang_code):
@@ -75,13 +69,14 @@ with tab_voice:
         if st.button("開始語音辨識與翻譯", key="btn_voice"):
             with st.spinner("翻譯中..."):
                 audio_bytes = audio_val.read()
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[
-                        types.Part.from_bytes(data=audio_bytes, mime_type="audio/wav"),
-                        f"請辨識音訊中的語音，並直接翻譯成 {target_lang}。只回傳翻譯結果。"
-                    ]
-                )
+                audio_part = {
+                    "mime_type": "audio/wav",
+                    "data": audio_bytes
+                }
+                response = model.generate_content([
+                    f"請辨識音訊中的語音，並直接翻譯成 {target_lang}。只回傳翻譯結果。",
+                    audio_part
+                ])
                 result_text = response.text.strip()
                 st.success("翻譯結果：")
                 st.subheader(result_text)
